@@ -40,79 +40,122 @@ public class Test {
 			e1.printStackTrace();
 		}
 		try {
-			restApi = new RallyRestApi(new URI(props.getProperty("UpdateRallyTicket.URL")), props.getProperty("UpdateRallyTicket.key"));
+			restApi = new RallyRestApi(new URI(
+					props.getProperty("UpdateRallyTicket.URL")),
+					props.getProperty("UpdateRallyTicket.key"));
 
-			String formattedID = "US25668";
-
+			String formattedID = "US999999";
+			JsonObject rallyJsonObject = null;
+			UpdateRequest updateRequest = null;
+			UpdateResponse updateResponse = null;
+			String errorCode = "";
 			QueryRequest rallyRequest = null;
-			if (formattedID.substring(0, 2).equalsIgnoreCase("DE")) {
-				rallyRequest = new QueryRequest("Defect");
+			String columnTo = null;
+			if (formattedID != null) {
+				if (formattedID.substring(0, 2).equalsIgnoreCase("DE")) {
+					rallyRequest = new QueryRequest("Defect");
+				} else {
+					rallyRequest = new QueryRequest("HierarchicalRequirement");
+				}
+
+				rallyRequest.setFetch(new Fetch("FormattedID", "Name",
+						"ScheduleState"));
+				rallyRequest.setQueryFilter(new QueryFilter("FormattedID", "=",
+						formattedID));
+
+				QueryResponse rallyQueryResponse = restApi.query(rallyRequest);
+
+				if (rallyQueryResponse.getResults().size() > 0) {
+					rallyJsonObject = rallyQueryResponse.getResults().get(0)
+							.getAsJsonObject();
+					String rallyRef = Ref.getRelativeRef(rallyJsonObject
+							.get("_ref")
+							.toString()
+							.substring(
+									rallyJsonObject.get("_ref").toString()
+											.indexOf("/v2.0") + 5)
+							.replace("\"", ""));
+
+					rallyJsonObject = new JsonObject();
+					columnTo = props.getProperty("UpdateRallyTicket.218757890");
+					if (columnTo != null) {
+						rallyJsonObject.addProperty("ScheduleState", columnTo);
+						updateRequest = new UpdateRequest(rallyRef,
+								rallyJsonObject);
+						updateResponse = restApi.update(updateRequest);
+						rallyJsonObject = updateResponse.getObject();
+					} else {
+						errorCode = errorCode
+								.concat("Column mapping not available");
+					}
+				} else {
+					errorCode = errorCode.concat("Invalid Rally ID");
+				}
+				if (null!=updateResponse && !updateResponse.wasSuccessful()) {
+					errorCode = errorCode.concat(updateResponse.getErrors()
+							.toString());
+				}
+				if (!errorCode.isEmpty() && errorCode != null) {
+					String to = props
+							.getProperty("UpdateRallyTicket.recipientList");
+
+					// Get the session object
+
+					props.put("mail.smtp.host", "smtp.gmail.com");
+					props.put("mail.smtp.socketFactory.port", "465");
+					props.put("mail.smtp.socketFactory.class",
+							"javax.net.ssl.SSLSocketFactory");
+					props.put("mail.smtp.auth", "true");
+					props.put("mail.smtp.port", "465");
+
+					Session session = Session.getDefaultInstance(props,
+							new javax.mail.Authenticator() {
+								protected PasswordAuthentication getPasswordAuthentication() {
+									return new PasswordAuthentication(
+											props.getProperty("UpdateRallyTicket.mailFrom"),
+											props.getProperty("UpdateRallyTicket.mailFromPassword"));
+								}
+							});
+
+					// compose message
+					try {
+						MimeMessage message = new MimeMessage(session);
+						message.setFrom(new InternetAddress(props
+								.getProperty("UpdateRallyTicket.mailFrom")));
+						message.addRecipient(Message.RecipientType.TO,
+								new InternetAddress(to));
+						message.setSubject("TEST MAIL PLZ IGNORE Leankit 2 Rally Update FAILED");
+
+						message.setText(String
+								.format("Failed ticket = %s, while trying to update %s to %s ",
+										formattedID,
+										"ScheduleState",
+										props.getProperty("UpdateRallyTicket.218757890"))
+								.concat(String.format("\n\r"))
+								.concat(String.format(
+										"Logged error message is : %s",
+										errorCode)));
+
+						// send message
+						Transport.send(message);
+
+						// System.out.println("message sent successfully");
+
+					} catch (MessagingException e) {
+						throw new RuntimeException(e);
+					}
+
+				}
 			}
-			else{
-				rallyRequest = new QueryRequest("HierarchicalRequirement");
-			}
-
-			rallyRequest.setFetch(new Fetch("FormattedID","Name","c_WPSKanbanState"));
-			rallyRequest.setQueryFilter(new QueryFilter("FormattedID", "=", formattedID));
-
-			QueryResponse rallyQueryResponse = restApi.query(rallyRequest);
-			JsonObject rallyJsonObject = rallyQueryResponse.getResults().get(0).getAsJsonObject();
-			String rallyRef = Ref.getRelativeRef(rallyJsonObject.get("_ref").toString().substring(rallyJsonObject.get("_ref").toString().indexOf("/v2.0")+5).replace("\"", ""));
-
-			rallyJsonObject = new JsonObject();
-			rallyJsonObject.addProperty("c_WPSKanbanState", "Prioritised");
-			UpdateRequest updateRequest = new UpdateRequest(rallyRef, rallyJsonObject);
-	        UpdateResponse updateResponse =  restApi.update(updateRequest);
-			rallyJsonObject = updateResponse.getObject();
-
-			if(!updateResponse.wasSuccessful()){
-				String to=props.getProperty("UpdateRallyTicket.recipientList");
-
-				  //Get the session object
-
-				  props.put("mail.smtp.host", "smtp.gmail.com");
-				  props.put("mail.smtp.socketFactory.port", "465");
-				  props.put("mail.smtp.socketFactory.class",
-				            "javax.net.ssl.SSLSocketFactory");
-				  props.put("mail.smtp.auth", "true");
-				  props.put("mail.smtp.port", "465");
-
-				  Session session = Session.getDefaultInstance(props,
-				   new javax.mail.Authenticator() {
-				   protected PasswordAuthentication getPasswordAuthentication() {
-				   return new PasswordAuthentication(props.getProperty("UpdateRallyTicket.mailFrom"),props.getProperty("UpdateRallyTicket.mailFromPassword"));
-				   }
-				  });
-
-				  //compose message
-				  try {
-				   MimeMessage message = new MimeMessage(session);
-				   message.setFrom(new InternetAddress(props.getProperty("UpdateRallyTicket.mailFrom")));
-				   message.addRecipient(Message.RecipientType.TO,new InternetAddress(to));
-				   message.setSubject("Leankit 2 Rally Update FAILED");
-				   message.setText(String.format("Failed ticket = %s", formattedID));
-
-				   //send message
-				   Transport.send(message);
-
-				   //System.out.println("message sent successfully");
-
-				  } catch (MessagingException e) {throw new RuntimeException(e);}
-
-			}
-
 		} catch (Exception e) {
 			e.printStackTrace();
-		} finally
-		{
+		} finally {
 			try {
 				restApi.close();
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
-
-
 
 	}
 
